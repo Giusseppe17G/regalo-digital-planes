@@ -284,7 +284,8 @@ const detailMeta = document.querySelector("#detail-meta");
 const dateInput = document.querySelector("#date-input");
 const commentInput = document.querySelector("#comment-input");
 const prepareConfirmationButton = document.querySelector("#prepare-confirmation-btn");
-const whatsappButton = document.querySelector("#whatsapp-btn");
+const whatsappLink = document.querySelector("#whatsapp-link");
+const copyMessageButton = document.querySelector("#copy-message-btn");
 const confirmationSummary = document.querySelector("#confirmation-summary");
 
 let activeCategory = "all";
@@ -779,9 +780,14 @@ function prepareConfirmation() {
     </dl>
   `;
 
+  updateWhatsappLink();
   showScreen("confirm-screen");
   vibrateSoft([14, 28, 14]);
   burstCelebration();
+}
+
+function getCleanWhatsappNumber() {
+  return WHATSAPP_NUMBER.replace(/\D/g, "");
 }
 
 function buildWhatsappMessage() {
@@ -800,36 +806,59 @@ function buildWhatsappMessage() {
 }
 
 function buildWhatsappUrl() {
-  const cleanNumber = WHATSAPP_NUMBER.replace(/\D/g, "");
+  const cleanNumber = getCleanWhatsappNumber();
   if (cleanNumber.length < 8) return null;
 
   const message = buildWhatsappMessage();
-  const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
-  if (DEBUG_WHATSAPP) console.log("WhatsApp URL:", url);
-  return url;
+  const encodedMessage = encodeURIComponent(message);
+  const waMeUrl = `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
+  const apiWhatsappUrl = `https://api.whatsapp.com/send?phone=${cleanNumber}&text=${encodedMessage}`;
+  if (DEBUG_WHATSAPP) console.log("WhatsApp URL:", apiWhatsappUrl, waMeUrl);
+  return { apiWhatsappUrl, waMeUrl };
 }
 
-function confirmByWhatsapp() {
+function updateWhatsappLink() {
+  const urls = selectedPlan && dateInput.value ? buildWhatsappUrl() : null;
+  whatsappLink.href = urls?.apiWhatsappUrl || "#";
+}
+
+function validateWhatsappReady() {
   if (!selectedPlan) {
     showToast("Primero elige un plan.");
-    return;
+    return false;
   }
 
   if (!dateInput.value) {
     showToast("Elige una fecha antes de abrir WhatsApp.");
     showScreen("detail-screen");
     dateInput.focus();
-    return;
+    return false;
   }
 
-  const url = buildWhatsappUrl();
-  if (!url) {
+  if (getCleanWhatsappNumber().length < 8) {
     showToast("Configura un número de WhatsApp válido.");
+    return false;
+  }
+
+  return true;
+}
+
+function handleWhatsappClick(event) {
+  if (!validateWhatsappReady()) {
+    event.preventDefault();
     return;
   }
 
+  const urls = buildWhatsappUrl();
+  if (!urls) {
+    event.preventDefault();
+    showToast("No pude preparar el enlace de WhatsApp.");
+    return;
+  }
+
+  whatsappLink.href = urls.apiWhatsappUrl;
   playEffect("confirm");
-  window.location.href = url;
+  // Let the browser follow the real anchor href from the user's tap.
 }
 
 function showToast(message) {
@@ -838,6 +867,29 @@ function showToast(message) {
   window.setTimeout(() => {
     toast.classList.remove("is-visible");
   }, 2600);
+}
+
+async function copyWhatsappMessage() {
+  if (!validateWhatsappReady()) return;
+
+  const message = buildWhatsappMessage();
+  try {
+    await navigator.clipboard.writeText(message);
+    showToast("Mensaje copiado.");
+    playEffect("select");
+    return;
+  } catch (error) {
+    const textarea = document.createElement("textarea");
+    textarea.value = message;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.append(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    showToast(copied ? "Mensaje copiado." : "No pude copiar el mensaje.");
+  }
 }
 
 function burstCelebration() {
@@ -909,7 +961,8 @@ function bindEvents() {
 
   surpriseButton.addEventListener("click", pickRandomPlan);
   prepareConfirmationButton.addEventListener("click", prepareConfirmation);
-  whatsappButton.addEventListener("click", confirmByWhatsapp);
+  whatsappLink.addEventListener("click", handleWhatsappClick);
+  copyMessageButton.addEventListener("click", copyWhatsappMessage);
   setupButtonRipples();
 }
 

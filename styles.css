@@ -1506,6 +1506,27 @@ textarea:focus {
   align-items: center;
 }
 
+.whatsapp-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.copy-message-btn {
+  min-height: 48px;
+}
+
+.whatsapp-help {
+  position: relative;
+  z-index: 1;
+  max-width: 520px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -1990,7 +2011,9 @@ textarea:focus {
   .primary-btn,
   .secondary-btn,
   .surprise-btn,
-  .text-btn {
+  .text-btn,
+  .whatsapp-link,
+  .copy-message-btn {
     width: 100%;
     justify-content: center;
     text-align: center;
