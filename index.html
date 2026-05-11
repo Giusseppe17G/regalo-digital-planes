@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Regalo Especial</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <main class="app-shell">
+    <section class="screen is-active" id="welcome-screen" aria-labelledby="welcome-title">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Un regalo digital</p>
+        <h1 id="welcome-title">Para elegir nuestro próximo plan bonito</h1>
+        <p class="lead">Una carta, un catálogo de planes y una forma fácil de decirme cuál quieres vivir conmigo.</p>
+          <button class="primary-btn" type="button" data-go="letter-screen">Abrir regalo</button>
+        </div>
+        <div class="sticker-stage" aria-label="Decoracion magica con personajes y orquideas">
+          <div class="sticker sticker-large" data-image="assets/shrek/shrek-01.png" data-fallback="Shrek"></div>
+          <div class="sticker sticker-small" data-image="assets/grogu/grogu-01.png" data-fallback="Grogu"></div>
+          <div class="sticker sticker-small alt" data-image="assets/minions/minion-01.png" data-fallback="Minion"></div>
+          <div class="sticker sticker-wide" data-image="assets/orchids/orchid-01.png" data-fallback="Orquidea"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="letter-screen" aria-labelledby="letter-title">
+      <article class="letter-card">
+        <p class="eyebrow">Antes de escoger</p>
+        <h2 id="letter-title">Tengo una invitacion para ti</h2>
+        <p>Quería hacerte algo distinto, algo que puedas abrir como si fuera una pequeña sorpresa. Aquí hay planes tranquilos, divertidos, raros, románticos y un poquito mágicos.</p>
+        <p>Elige el que más te provoque. Yo recibiré tu elección por WhatsApp y desde ahí empezamos a convertirlo en recuerdo.</p>
+        <button class="primary-btn" type="button" data-go="plans-screen">Ver planes</button>
+      </article>
+    </section>
+
+    <section class="screen" id="plans-screen" aria-labelledby="plans-title">
+      <div class="section-heading">
+        <p class="eyebrow">Catalogo interactivo</p>
+        <h2 id="plans-title">Elige nuestro plan</h2>
+      </div>
+
+      <div class="catalog-toolbar">
+        <label class="search-box">
+          <span>Buscar</span>
+          <input id="plan-search" type="search" placeholder="Cine, playa, karaoke..." autocomplete="off">
+        </label>
+        <button class="secondary-btn" type="button" id="show-all-btn">Ver todos</button>
+        <button class="surprise-btn" type="button" id="surprise-btn">Sorpréndeme</button>
+      </div>
+
+      <div class="category-filter" id="category-filter" aria-label="Filtros por categoria"></div>
+      <p class="result-count" id="result-count"></p>
+      <div class="plans-grid" id="plans-grid"></div>
+    </section>
+
+    <section class="screen" id="detail-screen" aria-labelledby="detail-title">
+      <button class="text-btn" type="button" data-go="plans-screen">Volver al catalogo</button>
+      <article class="detail-layout">
+        <div class="detail-image" id="detail-image"></div>
+        <div class="detail-copy">
+          <p class="eyebrow" id="detail-category"></p>
+          <h2 id="detail-title"></h2>
+          <p id="detail-description"></p>
+
+          <label class="field">
+            <span>Fecha sugerida</span>
+            <input id="date-input" type="date">
+          </label>
+
+          <label class="field">
+            <span>Comentario opcional</span>
+            <textarea id="comment-input" rows="4" placeholder="Ej: este sabado, con snacks, o como sorpresa..."></textarea>
+          </label>
+
+          <button class="primary-btn" type="button" id="whatsapp-btn">Confirmar por WhatsApp</button>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
