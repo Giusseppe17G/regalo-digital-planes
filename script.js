@@ -44,11 +44,22 @@ const CONFIG = {
     "Arte y experiencias": "jengi",
     "Planes random especiales": "shrekTwo",
     "Fotos y lugares bonitos": "grogu"
+  },
+  categoryVisuals: {
+    "Para quedarnos tranquis": { slug: "tranquis", icon: "☁️", label: "calma" },
+    "Cine y películas": { slug: "cine", icon: "🎬", label: "cine" },
+    "Comida y antojos": { slug: "comida", icon: "🍰", label: "antojo" },
+    "Noche, música y baile": { slug: "noche", icon: "🎵", label: "noche" },
+    "Diversión y juegos": { slug: "juegos", icon: "🎲", label: "juego" },
+    Aventura: { slug: "aventura", icon: "🌅", label: "aventura" },
+    "Arte y experiencias": { slug: "arte", icon: "🎨", label: "arte" },
+    "Planes random especiales": { slug: "random", icon: "✨", label: "sorpresa" },
+    "Fotos y lugares bonitos": { slug: "fotos", icon: "📸", label: "foto" }
   }
 };
 
 const AUDIO_CONFIG = {
-  ambient: "assets/audio/ambient.mp3",
+  ambient: "assets/audio/shrek-intro-long.mp3",
   open: "assets/audio/open.mp3",
   select: "assets/audio/select.mp3",
   surprise: "assets/audio/surprise.mp3",
@@ -56,7 +67,7 @@ const AUDIO_CONFIG = {
 };
 
 const AUDIO_VOLUME = {
-  ambient: 0.18,
+  ambient: 0.14,
   effect: 0.28
 };
 
@@ -363,6 +374,40 @@ function setImage(container, assetKey, fallbackLabel) {
   container.append(img);
 }
 
+function createCategoryVisual(category, title = category) {
+  const visualData = CONFIG.categoryVisuals[category] || { slug: "random", icon: "✨", label: "magia" };
+  const visual = document.createElement("div");
+  visual.className = `category-visual category-visual-${visualData.slug}`;
+  visual.setAttribute("aria-label", title);
+
+  const halo = document.createElement("span");
+  halo.className = "visual-halo";
+
+  const orbit = document.createElement("span");
+  orbit.className = "visual-orbit";
+
+  const icon = document.createElement("span");
+  icon.className = "visual-icon";
+  icon.textContent = visualData.icon;
+
+  const label = document.createElement("span");
+  label.className = "visual-label";
+  label.textContent = visualData.label;
+
+  const glints = document.createElement("span");
+  glints.className = "visual-glints";
+
+  visual.append(halo, orbit, icon, label, glints);
+  return visual;
+}
+
+function setCategorySticker(container, assetKey, fallbackLabel) {
+  const sticker = document.createElement("div");
+  sticker.className = "category-sticker";
+  setImage(sticker, assetKey, fallbackLabel);
+  container.append(sticker);
+}
+
 function setupAssetStickers() {
   document.querySelectorAll("[data-asset]").forEach((sticker) => {
     setImage(sticker, sticker.dataset.asset, sticker.dataset.fallback || "Magia");
@@ -622,6 +667,7 @@ function renderPlans() {
     const card = document.createElement("article");
     card.className = "plan-card";
     card.dataset.planId = plan.id;
+    card.dataset.category = CONFIG.categoryVisuals[plan.category]?.slug || "random";
     card.style.animationDelay = `${Math.min(index * 38, 520)}ms`;
 
     const shine = document.createElement("span");
@@ -629,7 +675,8 @@ function renderPlans() {
 
     const media = document.createElement("div");
     media.className = "plan-media";
-    setImage(media, getPlanAsset(plan, index), plan.category);
+    media.append(createCategoryVisual(plan.category, plan.title));
+    setCategorySticker(media, getPlanAsset(plan, index), plan.category);
 
     const body = document.createElement("div");
     body.className = "plan-body";
@@ -711,7 +758,9 @@ function openPlanDetail(plan) {
   dateInput.value = "";
   commentInput.value = "";
   dateInput.min = new Date().toISOString().split("T")[0];
-  setImage(detailImage, CONFIG.categoryAssets[plan.category] || "grogu", plan.title);
+  detailImage.dataset.category = CONFIG.categoryVisuals[plan.category]?.slug || "random";
+  detailImage.replaceChildren(createCategoryVisual(plan.category, plan.title));
+  setCategorySticker(detailImage, CONFIG.categoryAssets[plan.category] || "grogu", plan.title);
   showScreen("detail-screen");
 }
 
