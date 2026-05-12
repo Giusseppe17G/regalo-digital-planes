@@ -1513,18 +1513,24 @@ textarea:focus {
   text-decoration: none;
 }
 
+.whatsapp-link.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .copy-message-btn {
   min-height: 48px;
 }
 
-.whatsapp-help {
+.whatsapp-note {
   position: relative;
   z-index: 1;
   max-width: 520px;
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
-  font-size: 0.94rem;
+  font-size: 0.9rem;
   line-height: 1.5;
+  opacity: 0.78;
 }
 
 .toast {

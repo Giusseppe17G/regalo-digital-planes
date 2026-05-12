@@ -780,8 +780,8 @@ function prepareConfirmation() {
     </dl>
   `;
 
-  updateWhatsappLink();
   showScreen("confirm-screen");
+  updateWhatsappLink();
   vibrateSoft([14, 28, 14]);
   burstCelebration();
 }
@@ -791,6 +791,8 @@ function getCleanWhatsappNumber() {
 }
 
 function buildWhatsappMessage() {
+  if (!selectedPlan) return "";
+
   const dateValue = dateInput.value;
   const commentValue = commentInput.value.trim() || "Sin comentario adicional";
   return [
@@ -807,19 +809,31 @@ function buildWhatsappMessage() {
 
 function buildWhatsappUrl() {
   const cleanNumber = getCleanWhatsappNumber();
-  if (cleanNumber.length < 8) return null;
-
   const message = buildWhatsappMessage();
-  const encodedMessage = encodeURIComponent(message);
-  const waMeUrl = `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
-  const apiWhatsappUrl = `https://api.whatsapp.com/send?phone=${cleanNumber}&text=${encodedMessage}`;
-  if (DEBUG_WHATSAPP) console.log("WhatsApp URL:", apiWhatsappUrl, waMeUrl);
-  return { apiWhatsappUrl, waMeUrl };
+
+  if (!cleanNumber || cleanNumber.length < 9) return "";
+  if (!message) return "";
+
+  return `https://api.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`;
 }
 
 function updateWhatsappLink() {
-  const urls = selectedPlan && dateInput.value ? buildWhatsappUrl() : null;
-  whatsappLink.href = urls?.apiWhatsappUrl || "#";
+  if (!whatsappLink) return;
+
+  const url = buildWhatsappUrl();
+
+  if (!url) {
+    whatsappLink.setAttribute("href", "#");
+    whatsappLink.setAttribute("aria-disabled", "true");
+    whatsappLink.classList.add("is-disabled");
+    return;
+  }
+
+  whatsappLink.setAttribute("href", url);
+  whatsappLink.removeAttribute("aria-disabled");
+  whatsappLink.classList.remove("is-disabled");
+
+  if (DEBUG_WHATSAPP) console.log("WhatsApp URL:", url);
 }
 
 function validateWhatsappReady() {
@@ -835,8 +849,9 @@ function validateWhatsappReady() {
     return false;
   }
 
-  if (getCleanWhatsappNumber().length < 8) {
-    showToast("Configura un número de WhatsApp válido.");
+  const cleanNumber = getCleanWhatsappNumber();
+  if (!cleanNumber || cleanNumber.length < 9) {
+    showToast("El número de WhatsApp no está configurado correctamente.");
     return false;
   }
 
@@ -844,19 +859,33 @@ function validateWhatsappReady() {
 }
 
 function handleWhatsappClick(event) {
-  if (!validateWhatsappReady()) {
+  if (!selectedPlan) {
     event.preventDefault();
+    showToast("Primero elige un plan.");
     return;
   }
 
-  const urls = buildWhatsappUrl();
-  if (!urls) {
+  if (!dateInput.value) {
     event.preventDefault();
-    showToast("No pude preparar el enlace de WhatsApp.");
+    showToast("Elige una fecha antes de abrir WhatsApp.");
     return;
   }
 
-  whatsappLink.href = urls.apiWhatsappUrl;
+  const cleanNumber = getCleanWhatsappNumber();
+  if (!cleanNumber || cleanNumber.length < 9) {
+    event.preventDefault();
+    showToast("El número de WhatsApp no está configurado correctamente.");
+    return;
+  }
+
+  const url = buildWhatsappUrl();
+  if (!url) {
+    event.preventDefault();
+    showToast("No se pudo preparar el mensaje de WhatsApp.");
+    return;
+  }
+
+  whatsappLink.href = url;
   playEffect("confirm");
   // Let the browser follow the real anchor href from the user's tap.
 }
@@ -870,25 +899,20 @@ function showToast(message) {
 }
 
 async function copyWhatsappMessage() {
-  if (!validateWhatsappReady()) return;
-
   const message = buildWhatsappMessage();
+
+  if (!message) {
+    showToast("Primero elige un plan.");
+    return;
+  }
+
   try {
     await navigator.clipboard.writeText(message);
-    showToast("Mensaje copiado.");
+    showToast("Mensaje copiado. Ahora puedes pegarlo en WhatsApp.");
     playEffect("select");
     return;
   } catch (error) {
-    const textarea = document.createElement("textarea");
-    textarea.value = message;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.left = "-9999px";
-    document.body.append(textarea);
-    textarea.select();
-    const copied = document.execCommand("copy");
-    textarea.remove();
-    showToast(copied ? "Mensaje copiado." : "No pude copiar el mensaje.");
+    showToast("No se pudo copiar automáticamente. Intenta manualmente.");
   }
 }
 
