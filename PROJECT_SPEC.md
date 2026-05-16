@@ -1,0 +1,766 @@
+# PROJECT_SPEC.md
+
+## 1. Vision
+
+`AGI_STYLE_FOREX_BOT_MT5` sera un Expert Advisor modular para MetaTrader 5 orientado a Forex, con soporte para investigacion, backtesting, gestion de riesgo estricta, auditoria de decisiones y notificaciones operativas.
+
+El proyecto se inspira en caracteristicas publicamente observables de EAs Forex de alto rendimiento: disciplina de riesgo, filtrado de mercado, ejecucion robusta, monitoreo y mejora iterativa. No copia codigo propietario, no replica marcas privadas y no afirma ser un producto original de terceros.
+
+## 2. Principios
+
+- Seguridad primero: si algo no esta validado, no se opera.
+- `DEMO_ONLY=True` por defecto.
+- Todo trade debe tener SL y TP antes de enviarse.
+- Toda senal debe quedar auditada, incluso si es rechazada.
+- El bot debe poder explicar por que acepto o rechazo una operacion.
+- La estrategia, el riesgo, la ejecucion, el logging y el backtesting deben estar desacoplados.
+- Los contratos entre modulos son mas importantes que las implementaciones internas.
+
+## 3. Alcance Inicial
+
+Incluido:
+
+- Estructura base para EA MT5 en MQL5.
+- Contratos de senales, riesgo, ejecucion, eventos y backtesting.
+- Configuracion segura por defecto.
+- Especificacion de modulos.
+- Preparacion para trabajo multiagente.
+
+No incluido todavia:
+
+- Implementacion completa de estrategia.
+- Conexion real a Telegram.
+- Persistencia real en base de datos.
+- Motor completo de backtesting.
+- Optimizacion de parametros.
+- Operacion en vivo.
+- Operacion en cuenta real, incluso si se cambia manualmente `DEMO_ONLY`.
+
+## 4. Arquitectura General
+
+```text
+Market Data
+  -> Strategy Engine
+  -> Signal Contract
+  -> Risk Gate
+  -> Execution Gate
+  -> MT5 Order Executor
+  -> Position Monitor
+  -> Logging/Database
+  -> Telegram Notifications
+```
+
+Ningun modulo puede saltarse el `Risk Gate` ni el `Execution Gate`.
+
+## 5. Modulos
+
+### 5.1 Strategy Engine
+
+Responsabilidad:
+
+- Leer datos de mercado normalizados.
+- Calcular condiciones de entrada/salida.
+- Emitir una senal candidata.
+- No decidir lotaje final.
+- No ejecutar ordenes.
+
+Entradas:
+
+- Snapshot de mercado.
+- Estado de simbolo/timeframe.
+- Configuracion de estrategia.
+- Estado de posiciones relevante.
+
+Salidas:
+
+- `TradeSignal`.
+- `SignalDecisionEvent`.
+
+### 5.2 Risk Gate
+
+Responsabilidad:
+
+- Validar que la senal cumple reglas de seguridad.
+- Calcular o validar lotaje.
+- Rechazar operaciones inseguras con motivo estructurado.
+- Bloquear cualquier operacion si `DEMO_ONLY=True` y la cuenta no es demo.
+- Bloquear cualquier cuenta real salvo aprobacion explicita futura con whitelist y decision documentada.
+
+Debe verificar:
+
+- SL presente y valido.
+- TP presente y valido.
+- Spread menor o igual al maximo configurado.
+- Lotaje valido para simbolo, paso, minimo y maximo.
+- Riesgo individual menor o igual a `MAX_RISK_PER_TRADE_PCT`.
+- Drawdown diario dentro del limite.
+- Drawdown flotante dentro del limite.
+- Trades abiertos totales <= 10.
+- Riesgo abierto total <= 5%.
+- Sesion y simbolo permitidos.
+- Cooldown y limites de frecuencia.
+- Snapshot de mercado y senal no obsoletos.
+- Auditoria local persistida o encolada antes de permitir ejecucion.
+
+### 5.3 Execution Gate
+
+Responsabilidad:
+
+- Validar compatibilidad MT5 antes de enviar orden.
+- Revisar condiciones finales de precio, spread, freeze level, stops level y filling mode.
+- Rechazar si la senal envejecio o si el mercado cambio demasiado.
+
+### 5.4 MT5 Order Executor
+
+Responsabilidad:
+
+- Enviar ordenes a MT5 usando el adapter unico definido para el proyecto.
+- Verificar resultado del adapter unico de ejecucion y registrar el resultado equivalente de MT5.
+- Registrar retcodes y errores.
+- No recalcular estrategia ni riesgo.
+
+### 5.5 Position Monitor
+
+Responsabilidad:
+
+- Vigilar posiciones abiertas del magic number configurado.
+- Detectar cierres, SL, TP, errores y cambios manuales.
+- Emitir eventos de ciclo de vida.
+
+### 5.6 Backtesting
+
+Responsabilidad:
+
+- Ejecutar pruebas reproducibles.
+- Registrar parametros, rango de fechas, simbolos, costos, calidad de datos, commit y perfil de broker.
+- Producir metricas: profit factor, max drawdown, expected payoff, win rate, Sharpe/Sortino cuando aplique, trades totales y estabilidad por periodo.
+- Impedir promocion de estrategias con evidencia insuficiente, sobreajuste o resultados no reproducibles.
+
+### 5.7 Telegram/Logging/Database
+
+Responsabilidad:
+
+- Registrar eventos estructurados localmente.
+- Persistir eventos en base de datos cuando exista implementacion.
+- Enviar eventos importantes por Telegram.
+- Nunca exponer secretos en logs.
+
+## 6. Configuracion Segura
+
+Valores iniciales obligatorios:
+
+```ini
+DEMO_ONLY=True
+MAX_OPEN_TRADES=10
+MAX_OPEN_RISK_PCT=5.0
+MAX_RISK_PER_TRADE_PCT=0.5
+REQUIRE_SL=True
+REQUIRE_TP=True
+MAX_DAILY_DRAWDOWN_PCT=3.0
+MAX_FLOATING_DRAWDOWN_PCT=5.0
+MAX_SPREAD_POINTS_DEFAULT=25
+MAX_MARKET_SNAPSHOT_AGE_SECONDS=5
+MAX_SIGNAL_AGE_SECONDS=30
+MAX_TICK_AGE_SECONDS=5
+LIVE_TRADING_APPROVED=False
+ALLOWED_ACCOUNT_LOGINS=
+ALLOW_PARTIAL_FILL=False
+TRADING_HALTED_UNTIL_NEXT_DAY_ON_DD=True
+TELEGRAM_ENABLED=False
+DATABASE_ENABLED=False
+LOG_RETENTION_DAYS=90
+MAX_JSONL_FILE_MB=50
+TELEGRAM_OUTBOX_RETENTION_DAYS=30
+```
+
+Los limites por simbolo pueden ser mas estrictos, nunca mas permisivos sin aprobacion explicita.
+
+## 7. Contratos De Interfaces
+
+Los contratos son canonicos. Si se implementan en MQL5, Python o ambos, deben conservar nombres conceptuales y semantica.
+
+### 7.1 `MarketSnapshot`
+
+Campos:
+
+- `symbol`: string.
+- `timeframe`: string o enum.
+- `timestamp_utc`: datetime o long.
+- `bid`: double.
+- `ask`: double.
+- `spread_points`: double.
+- `digits`: int.
+- `point`: double.
+- `tick_value`: double.
+- `tick_size`: double.
+- `volume_min`: double.
+- `volume_max`: double.
+- `volume_step`: double.
+- `stops_level_points`: int.
+- `freeze_level_points`: int.
+
+Invariantes:
+
+- `ask >= bid`.
+- `spread_points >= 0`.
+- `point > 0`.
+- `bid > 0` y `ask > 0`.
+- `tick_value > 0`.
+- `tick_size > 0`.
+- `volume_min <= volume_max`.
+- `stops_level_points >= 0`.
+- `freeze_level_points >= 0`.
+- Volumen minimo, maximo y paso deben ser positivos.
+
+### 7.2 `TradeSignal`
+
+Campos:
+
+- `signal_id`: string unico.
+- `created_at_utc`: datetime o long.
+- `symbol`: string.
+- `timeframe`: string o enum.
+- `direction`: enum `BUY | SELL`.
+- `entry_type`: enum `MARKET | LIMIT | STOP`.
+- `entry_price`: double opcional para ordenes pendientes.
+- `sl_price`: double obligatorio.
+- `tp_price`: double obligatorio.
+- `requested_lot`: double opcional.
+- `risk_pct`: double opcional.
+- `confidence`: double entre 0 y 1.
+- `strategy_name`: string.
+- `strategy_version`: string.
+- `reason`: string corto.
+- `metadata_json`: string JSON opcional.
+
+Invariantes:
+
+- `sl_price` siempre obligatorio.
+- `tp_price` siempre obligatorio.
+- Para `BUY`, `sl_price < entry_reference_price < tp_price`.
+- Para `SELL`, `tp_price < entry_reference_price < sl_price`.
+- `confidence` entre 0 y 1.
+- `signal_id` debe propagarse a logs, base de datos y Telegram.
+- Para `MARKET BUY`, `entry_reference_price` es `ask`; para `MARKET SELL`, es `bid`.
+- Para `LIMIT` y `STOP`, `entry_price` es obligatorio y es el precio de referencia.
+- `metadata_json` debe incluir valores de indicadores/features usados, regimen detectado, version exacta de parametros, barras/candles usados, precio de referencia y motivo estructurado.
+- La primera estrategia experimental debe documentar hipotesis, simbolos, timeframes, entradas, salidas, invalidacion de senales, parametros y regimenes esperados antes de implementarse.
+
+### 7.3 `RiskDecision`
+
+Campos:
+
+- `signal_id`: string.
+- `accepted`: bool.
+- `reject_code`: enum o string.
+- `reject_reason`: string.
+- `approved_lot`: double.
+- `risk_amount_account_currency`: double.
+- `open_risk_pct_after_trade`: double.
+- `daily_drawdown_pct`: double.
+- `floating_drawdown_pct`: double.
+- `checks`: lista o JSON con resultados individuales.
+
+Codigos minimos de rechazo:
+
+- `DEMO_ONLY_REAL_ACCOUNT`.
+- `MISSING_SL`.
+- `MISSING_TP`.
+- `HIGH_SPREAD`.
+- `INVALID_LOT`.
+- `DAILY_DRAWDOWN_LIMIT`.
+- `FLOATING_DRAWDOWN_LIMIT`.
+- `MAX_OPEN_TRADES`.
+- `MAX_OPEN_RISK`.
+- `SYMBOL_NOT_ALLOWED`.
+- `SESSION_NOT_ALLOWED`.
+- `STALE_SIGNAL`.
+- `MARKET_DATA_INVALID`.
+- `EXECUTION_CONSTRAINT`.
+- `INTERNAL_ERROR`.
+- `ACCOUNT_TYPE_UNKNOWN`.
+- `LIVE_TRADING_NOT_APPROVED`.
+- `ACCOUNT_NOT_WHITELISTED`.
+- `DAILY_DRAWDOWN_REFERENCE_MISSING`.
+- `RISK_CALCULATION_UNCERTAIN`.
+- `TERMINAL_TRADE_DISABLED`.
+- `ACCOUNT_TRADE_DISABLED`.
+- `SYMBOL_TRADE_DISABLED`.
+- `MARKET_CLOSED`.
+- `INVALID_FILLING_MODE`.
+
+Invariantes:
+
+- Si `accepted=False`, `approved_lot` debe ser 0.
+- Si `accepted=False`, `risk_amount_account_currency` debe ser 0.
+- `checks` debe incluir chequeos ejecutados, fallidos y no ejecutados marcados como `skipped`.
+- Si `requested_lot` y `risk_pct` entran en conflicto, usar el resultado mas conservador o rechazar si no se puede verificar.
+
+### 7.4 `ExecutionRequest`
+
+Campos:
+
+- `signal_id`: string.
+- `symbol`: string.
+- `direction`: enum `BUY | SELL`.
+- `order_type`: enum `MARKET | LIMIT | STOP`.
+- `lot`: double.
+- `sl_price`: double.
+- `tp_price`: double.
+- `max_slippage_points`: int.
+- `magic_number`: long.
+- `comment`: string.
+
+Invariantes:
+
+- Solo puede construirse desde una `RiskDecision.accepted=True`.
+- Debe conservar `signal_id`.
+- Debe incluir SL y TP.
+
+### 7.5 `ExecutionResult`
+
+Campos:
+
+- `signal_id`: string.
+- `sent`: bool.
+- `filled`: bool.
+- `ticket`: long opcional.
+- `retcode`: int.
+- `retcode_description`: string.
+- `fill_price`: double.
+- `requested_lot`: double.
+- `filled_lot`: double.
+- `error_message`: string.
+- `timestamp_utc`: datetime o long.
+- `order_ticket`: long opcional.
+- `deal_ticket`: long opcional.
+- `position_ticket`: long opcional.
+- `request_id`: long opcional.
+- `last_error`: int.
+- `server_comment`: string.
+- `execution_latency_ms`: long.
+- `account_margin_mode`: string.
+- `filling_mode_used`: string.
+
+### 7.6 `Event`
+
+Campos:
+
+- `event_id`: string unico.
+- `schema_version`: string.
+- `correlation_id`: string, normalmente igual a `signal_id`.
+- `causation_id`: string opcional.
+- `idempotency_key`: string unico estable para deduplicar reintentos.
+- `sequence_number`: long monotonico por sesion cuando sea posible.
+- `run_id`: string de sesion/backtest/demo.
+- `environment`: enum `BACKTEST | DEMO | LIVE`.
+- `timestamp_utc`: datetime o long.
+- `severity`: enum `DEBUG | INFO | WARNING | ERROR | CRITICAL`.
+- `module`: string.
+- `event_type`: string.
+- `signal_id`: string opcional.
+- `symbol`: string opcional.
+- `message`: string.
+- `payload_json`: string JSON.
+
+Eventos que deben emitirse:
+
+- Senal generada.
+- Senal aceptada.
+- Senal rechazada.
+- Orden enviada.
+- Orden rechazada por MT5.
+- Orden ejecutada.
+- Posicion cerrada.
+- Limite de drawdown alcanzado.
+- Intento bloqueado por `DEMO_ONLY`.
+- Error de Telegram.
+- Error de base de datos/logging.
+- Bot iniciado.
+- Bot detenido.
+- Configuracion cargada.
+- Configuracion rechazada.
+- Cuenta demo verificada.
+- Cuenta no determinable.
+- Execution Gate acepto/rechazo.
+- Senal obsoleta rechazada.
+- Evento persistido.
+- Evento encolado por fallo de base de datos.
+- Cola de Telegram saturada.
+- Reintento de Telegram programado.
+- Retencion/rotacion de logs ejecutada.
+
+### 7.7 `BacktestRunConfig`
+
+Campos:
+
+- `run_id`: string unico.
+- `strategy_name`: string.
+- `strategy_version`: string.
+- `symbols`: lista.
+- `timeframes`: lista.
+- `start_date`: date.
+- `end_date`: date.
+- `initial_balance`: double.
+- `spread_model_json`: string JSON.
+- `commission_model_json`: string JSON.
+- `slippage_model_json`: string JSON.
+- `data_source`: string.
+- `parameters_json`: string JSON.
+- `code_commit`: git SHA exacto.
+- `backtest_engine`: enum `MT5_STRATEGY_TESTER | PYTHON_ENGINE`.
+- `engine_version`: string.
+- `mt5_build`: string opcional.
+- `modeling_mode`: string, por ejemplo `real_ticks`, `every_tick`, `ohlc`.
+- `timezone`: string.
+- `random_seed`: int opcional, obligatorio si hay aleatoriedad.
+- `data_fingerprint`: hash o manifest inmutable del dataset usado.
+- `broker_profile_json`: JSON con digits, point, tick_value, tick_size, contract_size, stops_level, freeze_level y volumen por simbolo.
+- `cost_model_json`: JSON estructurado con spread, comision, swap, slippage y fuente de estimacion.
+
+### 7.8 `BacktestResult`
+
+Campos:
+
+- `run_id`: string.
+- `net_profit`: double.
+- `profit_factor`: double.
+- `max_drawdown_pct`: double.
+- `daily_max_drawdown_pct`: double.
+- `trades_total`: int.
+- `win_rate_pct`: double.
+- `expected_payoff`: double.
+- `sharpe`: double opcional.
+- `sortino`: double opcional.
+- `recovery_factor`: double opcional.
+- `notes`: string.
+- `avg_win`: double.
+- `avg_loss`: double.
+- `payoff_ratio`: double.
+- `max_consecutive_losses`: int.
+- `exposure_time_pct`: double.
+- `monthly_returns_json`: string JSON.
+- `regime_breakdown_json`: string JSON.
+- `mae_mfe_summary_json`: string JSON.
+- `parameter_sensitivity_json`: string JSON.
+- `artifact_dir`: string.
+- `equity_curve_path`: string.
+- `trades_path`: string.
+- `events_path`: string.
+- `config_snapshot_path`: string.
+- `report_path`: string.
+- `created_at_utc`: datetime o long.
+- `status`: enum `PASS | FAIL | INCONCLUSIVE`.
+- `rejection_reason`: string.
+- `result_fingerprint`: string.
+
+## 8. Flujo De Decision
+
+1. Capturar `MarketSnapshot`.
+2. Strategy Engine genera `TradeSignal` o no emite nada.
+3. Logging persiste o encola localmente la senal candidata.
+4. Risk Gate valida invariantes y limites.
+5. Si rechaza, registrar motivo y enviar Telegram si severidad lo amerita.
+6. Si acepta, persistir o encolar localmente la `RiskDecision`.
+7. Si la auditoria local falla, bloquear sin construir `ExecutionRequest`.
+8. Si la auditoria local esta confirmada, construir `ExecutionRequest`.
+9. Execution Gate valida restricciones finales de MT5.
+10. Executor envia orden.
+11. Registrar `ExecutionResult`.
+12. Position Monitor sigue el ciclo de vida.
+
+## 9. Reglas De Seguridad Detalladas
+
+### 9.1 Demo Only
+
+- El valor por defecto es `DEMO_ONLY=True`.
+- Si `DEMO_ONLY=True`, el bot debe verificar el tipo de cuenta antes de operar.
+- Si la cuenta no es demo, emitir evento `CRITICAL` y bloquear operaciones.
+- La operacion en cuenta real esta fuera del alcance inicial.
+- Aunque `DEMO_ONLY=False`, el bot debe bloquear cuentas reales salvo que `LIVE_TRADING_APPROVED=True`, `ACCOUNT_LOGIN` este en `ALLOWED_ACCOUNT_LOGINS` y exista una decision de arquitectura aprobatoria en `docs/decisions/`.
+- Si no se puede determinar `ACCOUNT_TRADE_MODE`, `ACCOUNT_LOGIN` o servidor, rechazar con evento `CRITICAL`.
+
+### 9.2 SL/TP
+
+- SL y TP son obligatorios para toda operacion.
+- Deben respetar direccion, distancia minima del simbolo y precision de digitos.
+- No se permite abrir primero y modificar despues para agregar SL/TP.
+- SL/TP deben normalizarse a `digits`/`tick_size` sin reducir proteccion ni aumentar riesgo.
+- Si la normalizacion invalida la distancia minima o aumenta el riesgo por encima del limite, rechazar.
+
+### 9.3 Spread
+
+- Cada simbolo debe tener limite de spread.
+- Si no existe limite especifico, usar `MAX_SPREAD_POINTS_DEFAULT`.
+- El spread se valida en Risk Gate y nuevamente en Execution Gate.
+- Si no hay configuracion especifica ni default valido, rechazar.
+- Execution Gate debe recalcular spread con tick actual, no reutilizar solo el snapshot aprobado.
+
+### 9.4 Lotaje
+
+- El lotaje debe respetar `volume_min`, `volume_max` y `volume_step`.
+- El lotaje debe normalizarse hacia abajo, no hacia arriba, para no exceder riesgo.
+- Si no se puede calcular un lotaje valido, rechazar.
+- El riesgo de la operacion candidata no puede exceder `MAX_RISK_PER_TRADE_PCT`.
+
+### 9.5 Drawdown
+
+- Drawdown diario se calcula contra la equity al inicio del dia broker, persistida como referencia diaria obligatoria.
+- Drawdown flotante se calcula con equity actual contra balance o high-water mark configurado.
+- Al superar limites, bloquear nuevas operaciones y emitir evento importante.
+- La referencia diaria por defecto es la equity al inicio del dia broker.
+- Si no se puede capturar o persistir la referencia diaria, bloquear nuevas operaciones con `DAILY_DRAWDOWN_REFERENCE_MISSING`.
+- Una vez alcanzado el limite de drawdown diario, bloquear nuevas operaciones hasta el siguiente dia broker o hasta reinicio manual auditado, segun lo mas restrictivo.
+
+### 9.6 Exposicion
+
+- Maximo 10 trades abiertos.
+- Riesgo abierto total maximo 5%.
+- El riesgo abierto incluye posiciones existentes y la operacion candidata.
+- `open_trades_after_candidate` debe ser <= `MAX_OPEN_TRADES`; si ya existen 10 trades abiertos, cualquier nueva apertura se rechaza.
+- Riesgo abierto = perdida potencial hasta SL de posiciones abiertas y ordenes pendientes gestionadas por el bot, mas la candidata, expresada como porcentaje de equity actual.
+- Si tick value, tick size, divisa de beneficio, SL o conversion no son confiables, rechazar con `RISK_CALCULATION_UNCERTAIN`.
+
+### 9.7 Ejecucion MT5
+
+- El executor debe usar un unico adapter de ejecucion.
+- Por defecto, el adapter usa `MqlTradeRequest` + `OrderSend` para control explicito y auditoria completa.
+- Si se usa `CTrade`, debe estar encapsulado en el mismo adapter y registrar request/result equivalentes.
+- Solo se consideran exitosos `TRADE_RETCODE_DONE`, `TRADE_RETCODE_PLACED` para pendientes y `TRADE_RETCODE_DONE_PARTIAL` si `ALLOW_PARTIAL_FILL=True`.
+- Retcodes como `REQUOTE`, `PRICE_CHANGED`, `PRICE_OFF`, `INVALID_STOPS`, `INVALID_VOLUME`, `INVALID_FILL`, `MARKET_CLOSED`, `TRADE_DISABLED`, `NO_MONEY` y `TOO_MANY_REQUESTS` deben emitir evento estructurado.
+- Reintentos deben ser finitos, usar el mismo `signal_id`, recapturar snapshot y repetir validacion de spread, stops, freeze y riesgo aplicable.
+- Para BUY market: `SL <= Bid - stops_level*point` y `TP >= Bid + stops_level*point`.
+- Para SELL market: `SL >= Ask + stops_level*point` y `TP <= Ask - stops_level*point`.
+- Para pendientes, validar distancia desde precio pendiente y precio actual segun tipo.
+- Si `SYMBOL_TRADE_STOPS_LEVEL` o `SYMBOL_TRADE_FREEZE_LEVEL` no pueden leerse, rechazar con `EXECUTION_CONSTRAINT`.
+- No enviar modificaciones dentro de `freeze_level`; si la operacion requiere modificacion inmediata, bloquear.
+- Execution Gate debe rechazar si trading algoritimico, trading de cuenta o trading del simbolo no esta permitido.
+- Antes de operar, el simbolo debe existir, estar seleccionado con `SymbolSelect(symbol, true)`, tener tick reciente via `SymbolInfoTick`, `bid > 0`, `ask > 0`, `ask >= bid` y propiedades de trading validas.
+- Execution Gate debe leer `SYMBOL_FILLING_MODE` y seleccionar un modo permitido; si no hay modo compatible, rechazar con `INVALID_FILLING_MODE`.
+- `magic_number` debe ser obligatorio, positivo, estable por estrategia/simbolo/timeframe y configurable.
+- El comentario MT5 debe incluir prefijo corto y `signal_id` truncado, sin secretos ni JSON largo.
+- El bot debe detectar cuenta hedging vs netting/exchange. En netting, una senal opuesta no puede abrirse como posicion independiente sin politica explicita de cierre, reduccion o reversion.
+- Execution Gate debe rechazar si no hay conexion (`TERMINAL_CONNECTED=False`) o si el tick es mas viejo que `MAX_TICK_AGE_SECONDS`.
+
+## 10. Telegram
+
+Eventos importantes:
+
+- Bloqueo por cuenta real en modo demo.
+- Rechazo por drawdown.
+- Rechazo por maximo riesgo abierto.
+- Orden enviada.
+- Orden ejecutada.
+- Error critico de ejecucion.
+- Cierre de posicion.
+- Inicio/detencion del bot.
+
+Reglas:
+
+- Telegram desactivado por defecto.
+- Tokens deben venir de variables de entorno o archivo local ignorado.
+- No registrar token completo.
+- Si Telegram falla, no debe detener el EA salvo que se configure explicitamente.
+- Por defecto Telegram enviara eventos `WARNING`, `ERROR` y `CRITICAL`, ademas de `ORDER_SENT`, `ORDER_FILLED`, `POSITION_CLOSED`, `BOT_STARTED` y `BOT_STOPPED`.
+- Los mensajes de Telegram deben pasar por una outbox local duradera.
+- Cada mensaje debe tener `telegram_message_id`, `event_id`, `idempotency_key`, `status`, `attempt_count`, `next_retry_at_utc` y `last_error`.
+- Los reintentos deben usar backoff exponencial con limite maximo.
+- Errores HTTP 429 deben respetar `retry_after` si existe.
+- Tokens, chat IDs, account numbers, nombres de servidor, rutas locales e identificadores personales deben tratarse como sensibles.
+- Logs y mensajes de Telegram deben pasar por una funcion de redaccion que oculte valores completos y solo permita sufijos parciales cuando sea necesario.
+
+## 11. Logging Y Base De Datos
+
+Formato minimo: JSON Lines local.
+
+Base de datos prevista: SQLite para investigacion/local y adaptador posterior para otro backend si se requiere.
+
+Antes de construir o enviar una `ExecutionRequest`, el evento de senal generada y la decision del Risk Gate deben haberse escrito correctamente en JSONL local o en una cola duradera local. Si no se puede persistir ni encolar el evento, el sistema debe fallar cerrado y no abrir operaciones.
+
+JSONL debe escribirse en UTF-8, una linea valida por evento, con timestamp UTC ISO-8601 y `payload_json` serializable. La ruta por defecto sera `data/logs/events-YYYY-MM-DD.jsonl`. La escritura debe ser append-only. Si se detecta una linea corrupta, no debe sobrescribirse el archivo; debe emitirse un evento de error y continuar en un nuevo archivo si es posible.
+
+SQLite debe incluir como minimo tablas `events`, `telegram_outbox` y `delivery_attempts`. `events.event_id` e `events.idempotency_key` deben ser unicos. La base debe usar migraciones versionadas y modo WAL cuando este disponible. JSONL sigue siendo el registro local minimo aunque SQLite este habilitado.
+
+La retencion por defecto sera configurable con `LOG_RETENTION_DAYS`, `MAX_JSONL_FILE_MB` y `TELEGRAM_OUTBOX_RETENTION_DAYS`. No se debe borrar informacion de auditoria de operaciones sin exportacion o confirmacion explicita.
+
+Todo evento debe incluir:
+
+- timestamp UTC.
+- modulo.
+- severidad.
+- tipo.
+- `signal_id` cuando aplique.
+- motivo humano legible.
+- payload estructurado.
+
+## 12. Backtesting Y Validacion
+
+Antes de considerar una estrategia operable se requiere:
+
+- Backtest in-sample.
+- Backtest out-of-sample.
+- Separacion train/validation/test si hay ajuste de parametros.
+- Prueba walk-forward si hay optimizacion.
+- Monte Carlo sobre secuencia de trades y/o retornos.
+- Prueba de sensibilidad a spread y slippage.
+- Revision de meses negativos y rachas de perdidas.
+- Reporte con parametros exactos.
+- Forward test en demo o shadow mode antes de habilitar ejecucion demo real.
+
+### 12.1 Strategy Promotion Gate
+
+Una estrategia solo puede pasar a demo ejecutable si cumple todos los puntos:
+
+- Al menos 200 trades historicos o justificacion estadistica de una muestra menor.
+- Profit factor OOS > 1.15 despues de spread, comision y slippage.
+- Expected payoff OOS positivo.
+- Max drawdown OOS menor al limite definido para la estrategia.
+- No depender de un unico mes, simbolo o regimen para la mayoria del beneficio.
+- Resultados aceptables en sensibilidad de spread/slippage.
+- Walk-forward aprobado si hubo optimizacion.
+- Forward test o shadow mode con senales auditadas antes de permitir ejecucion demo.
+
+### 12.2 Reproducibilidad Y Datos
+
+Todo backtest debe declarar calidad de datos: tipo de dato usado, proveedor, zona horaria, rango disponible, huecos detectados, ticks/barras descartados, duplicados, fines de semana, cambios de horario/DST y porcentaje de cobertura. Si la calidad no puede verificarse, el resultado queda marcado como no apto para decision operativa.
+
+Los modelos de costos deben serializarse como JSON estructurado, no texto libre. Deben incluir spread fijo/variable, comision por lado o round-turn, swap si aplica, slippage medio/maximo, distribucion usada, moneda de comision y fuente de estimacion.
+
+Toda investigacion con ajuste de parametros debe separar datos en entrenamiento, validacion y prueba final. El periodo de prueba final no puede usarse para seleccionar parametros. Cualquier cambio posterior a ver resultados en test invalida ese test y requiere nuevo periodo holdout.
+
+La prueba walk-forward debe declarar longitud de ventana de entrenamiento, longitud de ventana OOS, paso de avance, parametros candidatos, criterio de seleccion, numero de folds, resultados por fold y resultado agregado. Se debe reportar dispersion entre folds, no solo promedio.
+
+Antes de activar una estrategia debe ejecutarse Monte Carlo sobre secuencia de trades y/o retornos, incluyendo permutacion de orden, bootstrap con reemplazo, stress de spread/slippage y degradacion de fill rate. Reportar percentiles 5/50/95 de equity final, max drawdown, rachas perdedoras y riesgo de ruina.
+
+Todo reporte debe incluir numero de configuraciones probadas, rango completo de parametros evaluados, parametros descartados y motivo, separacion de datasets y registro de cada corrida para evitar cherry-picking.
+
+El reporte cuantitativo debe segmentar resultados por tendencia alcista, tendencia bajista, rango, volatilidad alta/media/baja, sesiones Asia/Londres/Nueva York/solapes, periodos de noticias si el dataset los identifica y spread normal/ampliado.
+
+Cada estrategia debe compararse contra baselines: no-trade, buy-and-hold si aplica, entrada aleatoria con mismo numero de trades/SL/TP, variante sin filtro principal y variante buy-only/sell-only cuando aplique.
+
+Metricas minimas:
+
+- Trades totales.
+- Net profit.
+- Max drawdown.
+- Daily max drawdown.
+- Profit factor.
+- Win rate.
+- Expected payoff.
+- Promedio y maximo de perdida consecutiva.
+- CAGR cuando aplique.
+- Calmar.
+- Recovery factor.
+- Payoff ratio.
+- Profit/loss promedio.
+- MAE/MFE.
+- Tiempo en mercado.
+- Trades por mes.
+- Meses positivos/negativos.
+- Skew/kurtosis de retornos.
+- Peor dia/semana/mes.
+- Percentiles de drawdown.
+- Metricas por simbolo/timeframe/sesion.
+
+## 13. Estructura De Repositorio
+
+```text
+AGENTS.md
+PROJECT_SPEC.md
+config/
+data/
+docs/
+scripts/
+src/
+tests/
+```
+
+Detalle esperado:
+
+```text
+src/mt5/Experts/
+src/mt5/Include/Contracts/
+src/mt5/Include/Core/
+src/mt5/Include/Strategy/
+src/mt5/Include/Risk/
+src/mt5/Include/Execution/
+src/mt5/Include/Telemetry/
+src/mt5/Include/Storage/
+src/mt5/Include/Backtesting/
+src/python/agi_style_forex_bot_mt5/
+tests/mt5/
+tests/python/
+docs/decisions/
+docs/testing/
+```
+
+## 14. Roadmap Por Fases
+
+### Fase 0: Preparacion Multiagente
+
+- Crear `AGENTS.md`.
+- Crear `PROJECT_SPEC.md`.
+- Crear estructura base.
+- Revisar documentos con subagentes.
+
+### Fase 1: Contratos Y Configuracion
+
+- Implementar tipos/structs base.
+- Implementar carga de configuracion segura.
+- Tests de invariantes.
+
+### Fase 2: Risk Gate
+
+- Validar SL/TP, spread, lotaje, drawdown, exposicion y cuenta demo.
+- Tests unitarios de rechazo.
+
+### Fase 3: Ejecucion MT5
+
+- Implementar executor seguro.
+- Manejar retcodes.
+- Tests en Strategy Tester/demo.
+
+### Fase 4: Estrategia
+
+- Documentar hipotesis, reglas exactas, salidas y regimenes antes de programar senales.
+- Implementar primera estrategia experimental.
+- Validar con backtesting.
+- Ejecutar shadow mode antes de demo ejecutable.
+
+### Fase 5: Observabilidad
+
+- Logs JSONL.
+- Telegram.
+- Persistencia SQLite.
+
+### Fase 6: Backtesting Avanzado
+
+- Ampliar reportes reproducibles ya obligatorios desde Fase 4.
+- Walk-forward.
+- Sensibilidad a costos.
+
+## 15. Criterios De No Operacion
+
+El bot no debe operar si:
+
+- `DEMO_ONLY=True` y la cuenta es real.
+- No se puede determinar el tipo de cuenta.
+- No hay SL.
+- No hay TP.
+- Spread excede limite.
+- Lotaje es invalido.
+- Drawdown diario excede limite.
+- Drawdown flotante excede limite.
+- La nueva apertura dejaria mas de 10 trades abiertos.
+- Riesgo abierto excede 5%.
+- Snapshot de mercado es invalido.
+- Error interno impide auditar la decision.
+
+## 16. Pendientes Para Implementacion Futura
+
+- Definir estrategia inicial exacta.
+- Elegir esquema final de persistencia.
+- Definir formato de presets `.set`.
+- Definir matriz de simbolos permitidos.
+- Definir versionado de parametros.
+- Definir CI para validaciones Python y lint documental.

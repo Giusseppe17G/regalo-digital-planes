@@ -1,0 +1,145 @@
+# QA Implementation Report
+
+## Scope
+
+Role: QA / Integration Engineer.
+
+Reviewed required sources:
+
+- `AGENTS.md`
+- `PROJECT_SPEC.md`
+- `config/defaults.example.ini`
+- `docs/interfaces/README.md`
+- Current implementation under `src/python`
+- Current tests under `tests/python`
+
+Edited files:
+
+- `tests/python/test_integration_safety.py`
+- `docs/QA_IMPLEMENTATION_REPORT.md`
+
+## Summary
+
+Status: PASS with implementation gaps to track before any executable demo/live path.
+
+The Python implementation is currently fail-closed for the reviewed paths. Default config remains demo-only, shadow mode prevents order attempts in the top-level bot loop, risk rejects unsafe signals before execution, and the MT5 execution layer can be tested with an injected mock client. No real execution route was observed while `DEMO_ONLY=True`, and the lower execution adapter also blocks real accounts when `LIVE_TRADING_APPROVED=False`.
+
+## Interface Compatibility
+
+Findings:
+
+- `MarketSnapshot`, `TradeSignal`, `RiskDecision`, `ExecutionRequest`, `ExecutionResult`, and `Event` are represented in `src/python/agi_style_forex_bot_mt5/contracts.py`.
+- Core semantic invariants are implemented: valid market prices, directional SL/TP checks, rejected `RiskDecision` zeroes approved lot and risk amount, `ExecutionRequest.validate()` requires positive lot, SL, TP, and magic number.
+- `docs/interfaces/README.md` says `ExecutionRequest` must only be built after `RiskDecision.accepted=True` and local audit confirmation. `ExecutionEngine._preflight()` enforces accepted risk and audit confirmation before `_build_execution_request()`.
+- Minor compatibility note: Python uses rich in-memory fields such as `TradeSignal.metadata` and `Event.payload`; serialized `metadata_json`/`payload_json` compatibility is provided by telemetry serialization rather than the contract dataclass field names. MQL5 or external API adapters should normalize these names explicitly at boundaries.
+
+## Safety Checks Verified
+
+No real execution path:
+
+- `BotConfig` defaults to `demo_only=True`, `live_trading_approved=False`, and `shadow_mode=True`.
+- `ShadowDemoBot.run_once()` audits strategy/risk and returns `execution_attempted=False`.
+- `MT5Connector.validate_account_for_trading()` rejects non-demo accounts when `DEMO_ONLY=True`.
+- If `demo_only=False` is manually constructed, `MT5Connector` still rejects non-demo accounts when `LIVE_TRADING_APPROVED=False`.
+
+No order without SL/TP:
+
+- `TradeSignal.validate_against_snapshot()` requires positive SL and TP and directional placement.
+- `RiskEngine` rejects missing TP with `MISSING_TP`.
+- `ExecutionEngine` rejects a signal without TP before `order_check` or `order_send`.
+
+Audit of signals and rejections:
+
+- `ShadowDemoBot` writes `SIGNAL_GENERATED`, `TRADE_SIGNAL_CREATED`, `SIGNAL_ACCEPTED` or `SIGNAL_REJECTED`, and `EXECUTION_SKIPPED` JSONL events.
+- Risk decisions include structured `checks` and rejection codes.
+- Audit failure behavior is fail-closed: `RiskEngine` rejects when `RiskRuntimeState.audit_confirmed=False`, and `ExecutionEngine` rejects when `audit_confirmed=False`.
+
+Telegram failure isolation:
+
+- `TelegramNotifier.notify_event()` catches `requests.RequestException`, redacts sensitive values, returns `FAILED`, and does not raise to the caller.
+- Existing telemetry tests verify durable outbox behavior when a database is supplied.
+
+MT5 mocking:
+
+- `MT5Connector` accepts `mt5_client`, allowing deterministic fake MT5 clients in tests.
+- Mocked execution reaches `order_check` and `order_send` only when account, audit, risk, spread, volume, stops, netting policy, and filling mode gates pass.
+
+## Tests Added
+
+Added `tests/python/test_integration_safety.py` with coverage for:
+
+- Shadow loop audits signal/risk decision and skips execution.
+- Real account blocked and audited under `DEMO_ONLY=True`.
+- Real account blocked by `LIVE_TRADING_APPROVED=False` even if `demo_only=False` is manually supplied.
+- Missing TP rejected at risk and execution gates with no MT5 send.
+- Telegram sender failure does not raise and redacts token.
+- MT5 execution can be mocked and sends only after all gates pass.
+
+## Commands Run
+
+- `python -m pytest tests/python/test_integration_safety.py -q`
+  - Result: failed before tests because `python` resolves to the Windows Store alias in this environment.
+- `py -m pytest tests/python/test_integration_safety.py -q`
+  - Result: passed, `6 passed`.
+- `py -m pytest -q`
+  - Result: passed, `46 passed`.
+
+## Risks And Gaps
+
+- Telegram is implemented as a notifier, but `ShadowDemoBot` does not wire important audit events to `TelegramNotifier` yet. Current verification proves notifier failure isolation, not end-to-end bot notification delivery.
+- Lower-level `ExecutionEngine` returns `ExecutionResult` but does not itself persist execution events. A caller must audit `ORDER_SENT`, MT5 rejections, fills, and duplicate/stale rejects before executable demo mode.
+- Local JSONL audit is append-only, but `_audit()` does not catch database insert failures when an optional database is supplied. This remains fail-closed for trading because exceptions stop the loop, but it can interrupt shadow collection.
+- Python dataclass contracts are semantically compatible but not a byte-for-byte serialized schema for MQL5. Boundary adapters should formalize JSON field names such as `metadata_json` and `payload_json`.
+- Live trading remains out of scope. Tests intentionally confirm blocking behavior only; they do not approve or exercise any live execution path.
+
+## Recommendations
+
+- Keep execution disabled in the top-level bot until an audited execution orchestrator exists that persists signal, risk decision, execution gate decision, request, and result before/after each step.
+- Wire `TelegramNotifier` behind the audit/event pipeline with durable outbox enabled for important events, while preserving the current non-raising behavior.
+- Add an explicit serialization contract test for JSON-compatible `TradeSignal`, `RiskDecision`, `ExecutionRequest`, `ExecutionResult`, and `Event` records before MQL5/Python interoperability work.
+- Add an execution audit integration test once executable demo mode is introduced.
+- Keep `DEMO_ONLY=True`, `LIVE_TRADING_APPROVED=False`, and `shadow_mode=True` as defaults until the documented promotion and architecture gates are satisfied.
+
+## Phase 2 End-To-End Integration Update
+
+Status: PASS.
+
+Integrated in Phase 2:
+
+- `ShadowDemoBot` now emits end-to-end lifecycle events: `BOT_STARTED`, `ACCOUNT_SNAPSHOT`, `SIGNAL_DETECTED`, compatibility `SIGNAL_GENERATED`, `SIGNAL_REJECTED`, `RISK_REJECTED`, `SHADOW_ORDER_CREATED`, `EXECUTION_SKIPPED`, `BOT_STOPPED`, `CRITICAL_ERROR`, and `TELEGRAM_ERROR`.
+- Telegram is wired into the bot audit pipeline through `TelegramNotifier`. Notification failures are caught, redacted, audited as `TELEGRAM_ERROR`, and do not break the loop.
+- `ShadowExecutionEngine` creates idempotent `ShadowOrder` records only after accepted risk and validated SL/TP/lot/risk.
+- Shadow orders are persisted to SQLite `orders` when a database is supplied and are also written to JSONL through the `SHADOW_ORDER_CREATED` event.
+- `ShadowDemoBot` still never calls MT5 `order_send`; top-level result keeps `execution_attempted=False`.
+- JSON boundary contracts were documented in `docs/interfaces/json_contracts.md` and backed by runtime validation helpers in `json_contracts.py`.
+
+Additional Phase 2 tests:
+
+- Telegram fail-safe.
+- Shadow order persistence.
+- No `order_send` in shadow mode.
+- Accepted signal creates a shadow order.
+- Strategy rejection creates no shadow order.
+- Risk rejection creates no shadow order.
+- Bad/missing SL/TP path fails closed before shadow order.
+- Missing audit sink fails closed.
+- Idempotency prevents duplicate shadow orders.
+- JSON contracts validate required fields.
+
+Commands run:
+
+- `py -m pytest -q`
+  - Result: passed, `55 passed`.
+- `$env:PYTHONPATH='src/python'; py -m agi_style_forex_bot_mt5.cli --mode shadow --log-dir data\logs\phase2-smoke --sqlite data\sqlite\phase2-smoke.sqlite3`
+  - Result: passed, produced `shadow_order_created=true` and `execution_attempted=false`.
+
+Remaining risks:
+
+- Telegram outbox durability requires SQLite to be supplied. Without SQLite, Telegram still fails safely but failed messages are not durably queued.
+- `ExecutionEngine` is ready for future demo execution but remains separate from the top-level shadow bot. Any future executable demo orchestrator must persist pre-send and post-send execution events before calling MT5.
+- JSON contracts are now documented and validated in Python, but MQL5 adapters still need explicit serialization/deserialization tests.
+- Shadow orders are simulation artifacts and not proof of live broker fill quality.
+
+Recommendation after Phase 2:
+
+- Keep shadow mode as the only top-level run mode until execution-event persistence, MQL5/Python JSON adapters, and strategy promotion evidence are complete.
